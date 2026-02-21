@@ -1,11 +1,11 @@
 # Website Developer Bot
 
-A WhatsApp bot that lets non-technical users update the [PAN Medical & Industrial Supplies](https://panmedical.pages.dev) website by sending plain-English messages. The bot uses Claude AI to understand requests, modifies the HTML, validates it, and deploys the changes automatically.
+A Telegram bot that lets non-technical users update the [PAN Medical & Industrial Supplies](https://panmedical.pages.dev) website by sending plain-English messages. The bot uses Claude AI to understand requests, modifies the HTML, validates it, and deploys the changes automatically.
 
 ## How It Works
 
 ```
-User sends WhatsApp message
+User sends Telegram message
         │  "Add Paracetamol to the Pharmaceuticals section"
         ▼
 ┌─────────────────────┐
@@ -77,7 +77,7 @@ Bot:   Done! The last change has been undone.
 Before setting up, you need:
 
 1. **A Cloudflare account** — free tier works
-2. **A WhatsApp Business API account** — via [Meta for Developers](https://developers.facebook.com/)
+2. **A Telegram bot** — create one via [BotFather](https://t.me/BotFather) on Telegram
 3. **An Anthropic API key** — from [console.anthropic.com](https://console.anthropic.com/)
 4. **A GitHub account** with a **separate repository** that holds your website's `index.html`
 5. **Node.js** (v18+) — for the `wrangler` CLI
@@ -110,15 +110,12 @@ This bot updates a **separate** GitHub repository that holds the website HTML. C
 4. Set build output directory to `/` (the repo root), no build command needed
 5. Deploy — your site is now live at `your-project.pages.dev`
 
-### 3. Set up WhatsApp Business API
+### 3. Create a Telegram bot
 
-1. Go to [Meta for Developers](https://developers.facebook.com/) and create an app
-2. Add the **WhatsApp** product to your app
-3. In WhatsApp → Getting Started, note down:
-   - **Phone Number ID** — this is `WHATSAPP_PHONE_NUMBER_ID`
-   - **Temporary Access Token** — this is `WHATSAPP_TOKEN` (for production, generate a permanent token)
-4. Choose a **verify token** — any string you pick, e.g., `my-secret-verify-token`. This is `WHATSAPP_VERIFY_TOKEN`
-5. You'll configure the webhook URL after deploying (Step 6)
+1. Open Telegram and message [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts to name your bot
+3. BotFather will give you a **bot token** — this is your `TELEGRAM_BOT_TOKEN`
+4. Optionally send `/setdescription` to describe what the bot does
 
 ### 4. Get API keys
 
@@ -138,9 +135,7 @@ cp .env.example .env
 Edit `.env` and fill in all the values:
 
 ```
-WHATSAPP_TOKEN=EAAxxxxxxx...
-WHATSAPP_VERIFY_TOKEN=my-secret-verify-token
-WHATSAPP_PHONE_NUMBER_ID=123456789012345
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 CLAUDE_API_KEY=sk-ant-xxxxxxx...
 GITHUB_TOKEN=ghp_xxxxxxx...
 GITHUB_REPO_OWNER=your-github-username
@@ -152,7 +147,7 @@ GITHUB_BRANCH=main
 #### For Cloudflare (production)
 
 ```bash
-# Create the KV namespace for pending confirmations
+# Create the KV namespace for pending confirmations, rollback, and history
 npx wrangler kv namespace create PENDING_CHANGES
 ```
 
@@ -161,9 +156,7 @@ This outputs an ID — paste it into `wrangler.jsonc` replacing `your_kv_namespa
 Then add each secret:
 
 ```bash
-npx wrangler secret put WHATSAPP_TOKEN
-npx wrangler secret put WHATSAPP_VERIFY_TOKEN
-npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
+npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put CLAUDE_API_KEY
 npx wrangler secret put GITHUB_TOKEN
 npx wrangler secret put GITHUB_REPO_OWNER
@@ -187,15 +180,20 @@ After deploying, wrangler will print the Worker URL, e.g.:
 https://website-developer-bot.your-subdomain.workers.dev
 ```
 
-### 7. Configure the WhatsApp webhook
+### 7. Set the Telegram webhook
 
-1. Go to Meta for Developers → Your App → WhatsApp → Configuration
-2. Set **Callback URL** to: `https://website-developer-bot.your-subdomain.workers.dev/webhook`
-3. Set **Verify Token** to the same value as your `WHATSAPP_VERIFY_TOKEN`
-4. Subscribe to the **messages** webhook field
-5. Click **Verify and Save**
+Tell Telegram where to send updates by calling the `setWebhook` API:
 
-The bot is now live. Send a WhatsApp message to your business number to test.
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://website-developer-bot.your-subdomain.workers.dev/webhook"
+```
+
+You should get back:
+```json
+{"ok": true, "result": true, "description": "Webhook was set"}
+```
+
+The bot is now live. Send a message to your bot on Telegram to test.
 
 ---
 
@@ -208,13 +206,19 @@ For testing locally before deploying:
 python local_server.py
 ```
 
-The server runs at `http://localhost:8787`. To receive WhatsApp webhooks locally, expose it with [ngrok](https://ngrok.com/):
+The server runs at `http://localhost:8787`. To receive Telegram webhooks locally, expose it with [ngrok](https://ngrok.com/):
 
 ```bash
 ngrok http 8787
 ```
 
-Use the ngrok HTTPS URL as your webhook URL in the Meta dashboard (temporarily, for testing).
+Then set the webhook to your ngrok URL (temporarily, for testing):
+
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<NGROK_URL>/webhook"
+```
+
+Remember to reset the webhook to your Cloudflare URL when done testing locally.
 
 ---
 
@@ -233,23 +237,23 @@ WebsiteDeveloperBot/
 └── src/
     ├── __init__.py
     ├── worker.py           # Cloudflare Workers entry point
-    ├── bot.py              # Core logic: message routing, confirmation flow
+    ├── bot.py              # Core logic: message routing, confirmation flow, rollback
     ├── claude_client.py    # Claude API — understands requests, generates HTML
+    ├── telegram.py         # Telegram Bot API — parse updates, send messages
     ├── github_client.py    # GitHub API — fetches and pushes index.html
-    ├── html_validator.py   # Pydantic validation — ensures HTML integrity
-    └── whatsapp.py         # WhatsApp API — webhook handling, message sending
+    └── html_validator.py   # Pydantic validation — ensures HTML integrity
 ```
 
 ### Module Responsibilities
 
 | Module | What it does |
 |---|---|
-| `src/worker.py` | Cloudflare Workers entry point. Routes `/webhook` GET (verification) and POST (messages). Uses `ctx.waitUntil()` to process messages in the background. |
-| `src/bot.py` | Orchestrates the full flow: rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per phone: `pending:`, `rollback:`, `history:`. |
+| `src/worker.py` | Cloudflare Workers entry point. Routes POST `/webhook` for Telegram updates. Uses `ctx.waitUntil()` to process messages in the background. |
+| `src/bot.py` | Orchestrates the full flow: rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
 | `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude. Builds multi-turn messages so Claude understands follow-ups. |
+| `src/telegram.py` | Parses incoming Telegram update payloads and sends text replies via the Bot API. |
 | `src/github_client.py` | Reads and writes `index.html` in the website GitHub repo using the Contents API. |
 | `src/html_validator.py` | Pydantic model that validates every generated HTML before deployment — checks for DOCTYPE, all 9 page sections, sidebar, and footer. |
-| `src/whatsapp.py` | Parses incoming webhook payloads, sends text replies, handles the webhook verification handshake. |
 | `local_server.py` | Flask app that mimics the Worker locally. Uses `requests` library for HTTP and in-memory dict for KV. |
 
 ---
@@ -287,7 +291,7 @@ Before every confirmed update, the bot saves the current HTML to KV as a rollbac
 
 ### Conversation History
 
-The bot stores the last 20 messages (user + bot) per phone number in KV (24-hour TTL). This history is sent to Claude as multi-turn context, enabling:
+The bot stores the last 20 messages (user + bot) per chat ID in KV (24-hour TTL). This history is sent to Claude as multi-turn context, enabling:
 
 - **Follow-up requests**: "Also add Ibuprofen to that same section"
 - **Corrections**: "Actually change the status to Lab Scale instead"
@@ -299,13 +303,10 @@ History resets automatically after 24 hours of inactivity.
 
 ## Troubleshooting
 
-### Webhook verification fails
-- Make sure `WHATSAPP_VERIFY_TOKEN` matches exactly between your `.env`/Cloudflare secrets and the Meta dashboard.
-
 ### Bot doesn't respond
 - Check Cloudflare Workers logs: `npx wrangler tail`
 - Verify all secrets are set: `npx wrangler secret list`
-- Ensure the WhatsApp webhook is subscribed to the `messages` field.
+- Check the webhook is set: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
 
 ### HTML validation fails after an update
 - This means Claude's output was missing a required section. The bot will ask the user to try again. If it keeps failing, the Claude prompt in `src/claude_client.py` may need adjustment for edge cases.
@@ -314,6 +315,11 @@ History resets automatically after 24 hours of inactivity.
 - Confirm Cloudflare Pages is connected to the correct GitHub repo and branch.
 - Check the GitHub repo to see if the commit was pushed successfully.
 - Cloudflare Pages typically deploys within 1-2 minutes of a push.
+
+### Webhook issues
+- Verify webhook status: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+- If switching between local/production, remember to update the webhook URL.
+- Telegram only supports HTTPS webhook URLs.
 
 ---
 

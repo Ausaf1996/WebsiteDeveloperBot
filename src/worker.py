@@ -9,7 +9,7 @@ from js import Response, Object, Headers, URL, fetch
 from pyodide.ffi import to_js
 
 from src.bot import handle_message
-from src.whatsapp import parse_incoming_message, verify_webhook
+from src.telegram import parse_incoming_message
 
 
 class WorkersEnv:
@@ -17,9 +17,7 @@ class WorkersEnv:
 
     def __init__(self, cf_env):
         self._cf = cf_env
-        self.whatsapp_token = str(cf_env.WHATSAPP_TOKEN)
-        self.whatsapp_verify_token = str(cf_env.WHATSAPP_VERIFY_TOKEN)
-        self.whatsapp_phone_number_id = str(cf_env.WHATSAPP_PHONE_NUMBER_ID)
+        self.telegram_bot_token = str(cf_env.TELEGRAM_BOT_TOKEN)
         self.claude_api_key = str(cf_env.CLAUDE_API_KEY)
         self.github_token = str(cf_env.GITHUB_TOKEN)
         self.github_repo_owner = str(cf_env.GITHUB_REPO_OWNER)
@@ -71,29 +69,16 @@ async def on_fetch(request, cf_env, ctx):
     if "/webhook" not in url_str:
         return Response.new("Not Found", status=404)
 
-    # --- GET: WhatsApp webhook verification ---
-    if method == "GET":
-        url_obj = URL.new(url_str)
-        params = {
-            "hub.mode": str(url_obj.searchParams.get("hub.mode") or ""),
-            "hub.verify_token": str(url_obj.searchParams.get("hub.verify_token") or ""),
-            "hub.challenge": str(url_obj.searchParams.get("hub.challenge") or ""),
-        }
-        challenge = verify_webhook(params, env.whatsapp_verify_token)
-        if challenge:
-            return Response.new(challenge, status=200)
-        return Response.new("Forbidden", status=403)
-
-    # --- POST: incoming WhatsApp message ---
+    # --- POST: incoming Telegram update ---
     if method == "POST":
         body_text = await request.text()
         body = json.loads(str(body_text))
 
-        phone, text = parse_incoming_message(body)
+        chat_id, text = parse_incoming_message(body)
 
-        if phone and text:
+        if chat_id and text:
             # Process in background so we return 200 quickly
-            ctx.waitUntil(_process_message(env, phone, text))
+            ctx.waitUntil(_process_message(env, chat_id, text))
 
         # Always return 200 to acknowledge the webhook
         return Response.new("OK", status=200)
@@ -101,10 +86,10 @@ async def on_fetch(request, cf_env, ctx):
     return Response.new("Method Not Allowed", status=405)
 
 
-async def _process_message(env, phone, text):
+async def _process_message(env, chat_id, text):
     """Background task to process the message without blocking the webhook response."""
     try:
-        await handle_message(env, phone, text)
+        await handle_message(env, chat_id, text)
     except Exception as e:
         # Log the error (visible in Cloudflare Workers logs)
-        print(f"Error processing message from {phone}: {e}")
+        print(f"Error processing message from {chat_id}: {e}")

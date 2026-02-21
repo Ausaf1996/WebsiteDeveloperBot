@@ -1,6 +1,6 @@
 import json
 
-from src import claude_client, github_client, whatsapp
+from src import claude_client, github_client, telegram
 from src.html_validator import ValidatedHTML
 
 MAX_HISTORY_MESSAGES = 20
@@ -30,7 +30,7 @@ async def _handle_rollback(env, phone_number):
     rollback_json = await env.kv_get(f"rollback:{phone_number}")
 
     if not rollback_json:
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             "There is nothing to undo. I can only undo the most recent change, "
@@ -47,7 +47,7 @@ async def _handle_rollback(env, phone_number):
         validated = ValidatedHTML(content=previous_html)
     except Exception:
         await env.kv_delete(f"rollback:{phone_number}")
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             "Sorry, the previous version could not be restored. "
@@ -68,7 +68,7 @@ async def _handle_rollback(env, phone_number):
             env, phone_number, "bot",
             f"Rolled back the last change: \"{original_summary}\""
         )
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             f"Done! The last change has been undone.\n\n"
@@ -76,7 +76,7 @@ async def _handle_rollback(env, phone_number):
             f"The website will refresh in a minute or two.",
         )
     else:
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             "Sorry, there was an error restoring the previous version. "
@@ -101,7 +101,7 @@ async def _handle_confirmation(env, phone_number, message_text, pending_json):
             validated = ValidatedHTML(content=new_html)
         except Exception:
             await env.kv_delete(f"pending:{phone_number}")
-            await whatsapp.send_message(
+            await telegram.send_message(
                 env,
                 phone_number,
                 "Sorry, the update could not be applied because the generated HTML "
@@ -126,7 +126,7 @@ async def _handle_confirmation(env, phone_number, message_text, pending_json):
             # Record in conversation history
             await _append_history(env, phone_number, "bot", f"Applied update: {summary}")
 
-            await whatsapp.send_message(
+            await telegram.send_message(
                 env,
                 phone_number,
                 f"Done! The website has been updated.\n\n"
@@ -135,7 +135,7 @@ async def _handle_confirmation(env, phone_number, message_text, pending_json):
                 f"If you don't like this change, send *UNDO* to revert it.",
             )
         else:
-            await whatsapp.send_message(
+            await telegram.send_message(
                 env,
                 phone_number,
                 "Sorry, there was an error updating the website. Please try again later.",
@@ -144,7 +144,7 @@ async def _handle_confirmation(env, phone_number, message_text, pending_json):
     elif normalized in no_words:
         await env.kv_delete(f"pending:{phone_number}")
         await _append_history(env, phone_number, "bot", "User cancelled the pending change.")
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             "No problem! The changes have been cancelled. "
@@ -153,7 +153,7 @@ async def _handle_confirmation(env, phone_number, message_text, pending_json):
 
     else:
         # User sent something else while a confirmation is pending
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             "I have a pending update waiting for your confirmation.\n\n"
@@ -170,7 +170,7 @@ async def _handle_new_request(env, phone_number, message_text):
     current_html, _ = await github_client.get_current_html(env)
 
     if current_html is None:
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             "Sorry, I could not fetch the current website right now. Please try again later.",
@@ -201,7 +201,7 @@ async def _handle_new_request(env, phone_number, message_text):
             f"Proposed update: {result['summary']} (waiting for confirmation)"
         )
 
-        await whatsapp.send_message(
+        await telegram.send_message(
             env,
             phone_number,
             f"I will make these changes:\n\n"
@@ -211,12 +211,12 @@ async def _handle_new_request(env, phone_number, message_text):
 
     elif action in ("clarify", "out_of_scope", "off_topic"):
         await _append_history(env, phone_number, "bot", result["message"])
-        await whatsapp.send_message(env, phone_number, result["message"])
+        await telegram.send_message(env, phone_number, result["message"])
 
     else:
         msg = result.get("message", "Sorry, something went wrong. Please try again.")
         await _append_history(env, phone_number, "bot", msg)
-        await whatsapp.send_message(env, phone_number, msg)
+        await telegram.send_message(env, phone_number, msg)
 
 
 # ── Conversation history helpers ──────────────────────────────────────

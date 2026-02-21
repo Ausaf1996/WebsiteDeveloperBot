@@ -9,7 +9,7 @@
     "GITHUB_BRANCH": "main"
   },
 
-  // KV namespace for storing pending changes (confirmation flow)
+  // KV namespace for storing pending changes, rollback snapshots, and conversation history
   // Create with: npx wrangler kv namespace create PENDING_CHANGES
   // Then paste the id below
   "kv_namespaces": [
@@ -21,9 +21,7 @@
 
   // Add secrets via: npx wrangler secret put SECRET_NAME
   // Required secrets:
-  //   WHATSAPP_TOKEN
-  //   WHATSAPP_VERIFY_TOKEN
-  //   WHATSAPP_PHONE_NUMBER_ID
+  //   TELEGRAM_BOT_TOKEN
   //   CLAUDE_API_KEY
   //   GITHUB_TOKEN
   //   GITHUB_REPO_OWNER

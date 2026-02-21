@@ -1,7 +1,7 @@
 [project]
 name = "website-developer-bot"
 version = "0.1.0"
-description = "WhatsApp bot that updates a website via Claude API, deployed on Cloudflare Workers"
+description = "Telegram bot that updates a website via Claude API, deployed on Cloudflare Workers"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0",

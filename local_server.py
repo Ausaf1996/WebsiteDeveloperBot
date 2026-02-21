@@ -6,8 +6,10 @@ Run this for local testing:
     python local_server.py
 
 The server listens on http://localhost:8787/webhook
-Use a tool like ngrok to expose it for WhatsApp webhook testing:
+Use a tool like ngrok to expose it for Telegram webhook:
     ngrok http 8787
+Then set the webhook:
+    curl https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=https://<NGROK_URL>/webhook
 """
 
 import asyncio
@@ -20,7 +22,7 @@ from dotenv import load_dotenv
 from flask import Flask, request
 
 from src.bot import handle_message
-from src.whatsapp import parse_incoming_message, verify_webhook
+from src.telegram import parse_incoming_message
 
 load_dotenv()
 
@@ -31,9 +33,7 @@ class LocalEnv:
     """Local development environment — uses requests library and in-memory KV."""
 
     def __init__(self):
-        self.whatsapp_token = os.environ["WHATSAPP_TOKEN"]
-        self.whatsapp_verify_token = os.environ["WHATSAPP_VERIFY_TOKEN"]
-        self.whatsapp_phone_number_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+        self.telegram_bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
         self.claude_api_key = os.environ["CLAUDE_API_KEY"]
         self.github_token = os.environ["GITHUB_TOKEN"]
         self.github_repo_owner = os.environ["GITHUB_REPO_OWNER"]
@@ -67,25 +67,16 @@ class LocalEnv:
 env = LocalEnv()
 
 
-@app.route("/webhook", methods=["GET"])
-def webhook_verify():
-    """WhatsApp webhook verification endpoint."""
-    challenge = verify_webhook(request.args.to_dict(), env.whatsapp_verify_token)
-    if challenge:
-        return challenge, 200
-    return "Forbidden", 403
-
-
 @app.route("/webhook", methods=["POST"])
 def webhook_handler():
-    """Receive incoming WhatsApp messages."""
+    """Receive incoming Telegram updates."""
     body = request.get_json()
-    phone, text = parse_incoming_message(body)
+    chat_id, text = parse_incoming_message(body)
 
-    if phone and text:
+    if chat_id and text:
         # Process in a background thread so we return 200 immediately
         thread = threading.Thread(
-            target=lambda: asyncio.run(handle_message(env, phone, text))
+            target=lambda: asyncio.run(handle_message(env, chat_id, text))
         )
         thread.start()
 
@@ -95,5 +86,8 @@ def webhook_handler():
 if __name__ == "__main__":
     print("Starting local development server on http://localhost:8787")
     print("Webhook URL: http://localhost:8787/webhook")
+    print()
     print("Use ngrok to expose: ngrok http 8787")
+    print("Then set Telegram webhook:")
+    print(f"  curl https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<NGROK_URL>/webhook")
     app.run(host="0.0.0.0", port=8787, debug=True)
