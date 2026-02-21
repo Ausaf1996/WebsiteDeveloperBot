@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/__init__.py
+src/bot.py
+src/claude_client.py
+src/github_client.py
+src/html_validator.py
+src/telegram.py
+src/worker.py
+src/website_developer_bot.egg-info/PKG-INFO
+src/website_developer_bot.egg-info/SOURCES.txt
+src/website_developer_bot.egg-info/dependency_links.txt
+src/website_developer_bot.egg-info/entry_points.txt
+src/website_developer_bot.egg-info/requires.txt
+src/website_developer_bot.egg-info/top_level.txt

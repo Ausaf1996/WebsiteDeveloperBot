@@ -6,23 +6,23 @@ A Telegram bot that lets non-technical users update the [PAN Medical & Industria
 
 ```
 User sends Telegram message
-        │  "Add Paracetamol to the Pharmaceuticals section"
-        ▼
-┌─────────────────────┐
-│  Cloudflare Worker   │──► Fetches current website HTML from GitHub
-│  (this application)  │──► Sends HTML + request to Claude API
-│                      │──► Claude generates updated HTML + summary
-│                      │──► Stores pending change, asks user to confirm
-└─────────────────────┘
-        │  User replies "YES"
-        ▼
-┌─────────────────────┐
-│  Validates HTML      │──► Pydantic checks structure is intact
-│  Pushes to GitHub    │──► Commits updated index.html
-│  Cloudflare Pages    │──► Auto-deploys from GitHub (already configured)
-└─────────────────────┘
-        │
-        ▼
+        |  "Add Paracetamol to the Pharmaceuticals section"
+        v
++---------------------+
+|  Cloudflare Worker   |--- Fetches current website HTML from GitHub
+|  (this application)  |--- Sends HTML + request to Claude API
+|                      |--- Claude generates updated HTML + summary
+|                      |--- Stores pending change, asks user to confirm
++---------------------+
+        |  User replies "YES"
+        v
++---------------------+
+|  Validates HTML      |--- Checks structure is intact
+|  Pushes to GitHub    |--- Commits updated index.html
+|  Cloudflare Pages    |--- Auto-deploys from GitHub (already configured)
++---------------------+
+        |
+        v
   Website is live with the changes
 ```
 
@@ -48,12 +48,7 @@ Bot:   Done! The website has been updated.
 
 User:  Also add "Aspirin" with status Commercial and documents IP/USP
 
-Bot:   I will make these changes:
-
-       Add a new row "Aspirin" with status "Commercial" and regulatory
-       documents "IP/USP" to the Pharmaceuticals & API's table.
-
-       Reply YES to confirm or NO to cancel.
+Bot:   I will make these changes: ...
 
 User:  YES
 
@@ -76,12 +71,12 @@ Bot:   Done! The last change has been undone.
 
 Before setting up, you need:
 
-1. **A Cloudflare account** — free tier works
-2. **A Telegram bot** — create one via [BotFather](https://t.me/BotFather) on Telegram
-3. **An Anthropic API key** — from [console.anthropic.com](https://console.anthropic.com/)
+1. **A Cloudflare account** -- free tier works
+2. **A Telegram bot** -- create one via [BotFather](https://t.me/BotFather) on Telegram
+3. **An Anthropic API key** -- from [console.anthropic.com](https://console.anthropic.com/)
 4. **A GitHub account** with a **separate repository** that holds your website's `index.html`
-5. **Node.js** (v18+) — for the `wrangler` CLI
-6. **Python** (3.11+) — for local development
+5. **Node.js** (v18+) -- for the `wrangler` CLI
+6. **Python** (3.11+) -- for local development
 
 ---
 
@@ -94,7 +89,7 @@ git clone https://github.com/your-username/WebsiteDeveloperBot.git
 cd WebsiteDeveloperBot
 
 # Install Python dependencies for local development
-pip install pydantic requests flask python-dotenv
+pip install .
 
 # Install wrangler CLI for Cloudflare deployment
 npm install -g wrangler
@@ -104,25 +99,25 @@ npm install -g wrangler
 
 This bot updates a **separate** GitHub repository that holds the website HTML. Cloudflare Pages watches that repo and auto-deploys on every push.
 
-1. Create a new GitHub repo (e.g., `pan-medical-website`)
+1. Create a new GitHub repo (e.g., `PanMedicalSupplies`)
 2. Add your `index.html` to it and push
-3. In Cloudflare Dashboard → Pages → Create a project → Connect to Git → select that repo
+3. In Cloudflare Dashboard -> Pages -> Create a project -> Connect to Git -> select that repo
 4. Set build output directory to `/` (the repo root), no build command needed
-5. Deploy — your site is now live at `your-project.pages.dev`
+5. Deploy -- your site is now live at `your-project.pages.dev`
 
 ### 3. Create a Telegram bot
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot` and follow the prompts to name your bot
-3. BotFather will give you a **bot token** — this is your `TELEGRAM_BOT_TOKEN`
+3. BotFather will give you a **bot token** -- this is your `TELEGRAM_BOT_TOKEN`
 4. Optionally send `/setdescription` to describe what the bot does
 
 ### 4. Get API keys
 
 | Key | Where to get it |
 |---|---|
-| `CLAUDE_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) → API Keys |
-| `GITHUB_TOKEN` | [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → select `repo` scope |
+| `CLAUDE_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) -> API Keys |
+| `GITHUB_TOKEN` | [github.com/settings/tokens](https://github.com/settings/tokens) -> Generate new token (classic) -> select `repo` scope |
 
 ### 5. Configure environment
 
@@ -139,7 +134,7 @@ TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 CLAUDE_API_KEY=sk-ant-xxxxxxx...
 GITHUB_TOKEN=ghp_xxxxxxx...
 GITHUB_REPO_OWNER=your-github-username
-GITHUB_REPO_NAME=pan-medical-website
+GITHUB_REPO_NAME=PanMedicalSupplies
 GITHUB_FILE_PATH=index.html
 GITHUB_BRANCH=main
 ```
@@ -151,7 +146,7 @@ GITHUB_BRANCH=main
 npx wrangler kv namespace create PENDING_CHANGES
 ```
 
-This outputs an ID — paste it into `wrangler.jsonc` replacing `your_kv_namespace_id`.
+This outputs an ID -- paste it into `wrangler.jsonc` replacing the existing KV namespace ID.
 
 Then add each secret:
 
@@ -212,6 +207,8 @@ The server runs at `http://localhost:8787`. To receive Telegram webhooks locally
 ngrok http 8787
 ```
 
+> **Note**: ngrok free tier uses `.ngrok-free.dev` domain (not `.ngrok-free.app`).
+
 Then set the webhook to your ngrok URL (temporarily, for testing):
 
 ```bash
@@ -226,22 +223,21 @@ Remember to reset the webhook to your Cloudflare URL when done testing locally.
 
 ```
 WebsiteDeveloperBot/
-├── .gitignore              # Excludes .env, __pycache__, .wrangler
-├── .env.example            # Template for local environment variables
-├── pyproject.toml          # Python project config and dependencies
-├── wrangler.jsonc          # Cloudflare Workers deployment config
-├── local_server.py         # Flask server for local testing
-├── index.html              # Reference copy of the website (not deployed from here)
-├── CLAUDE.md               # Project context for Claude Code
-├── README.md               # This file
-└── src/
-    ├── __init__.py
-    ├── worker.py           # Cloudflare Workers entry point
-    ├── bot.py              # Core logic: message routing, confirmation flow, rollback
-    ├── claude_client.py    # Claude API — understands requests, generates HTML
-    ├── telegram.py         # Telegram Bot API — parse updates, send messages
-    ├── github_client.py    # GitHub API — fetches and pushes index.html
-    └── html_validator.py   # Pydantic validation — ensures HTML integrity
++-- .gitignore              # Excludes .env, __pycache__, .wrangler, node_modules, build/
++-- .env                    # Local environment variables (NOT committed)
++-- pyproject.toml          # Python project config and local dev dependencies
++-- wrangler.jsonc          # Cloudflare Workers deployment config
++-- local_server.py         # Flask server for local testing
++-- Claude.md               # Project context for AI assistants (Claude Code, etc.)
++-- README.md               # This file
++-- src/
+    +-- __init__.py
+    +-- worker.py           # Cloudflare Workers entry point (Pyodide runtime)
+    +-- bot.py              # Core logic: message routing, confirmation flow, rollback
+    +-- claude_client.py    # Claude API -- understands requests, generates HTML
+    +-- telegram.py         # Telegram Bot API -- parse updates, send messages
+    +-- github_client.py    # GitHub API -- fetches and pushes index.html
+    +-- html_validator.py   # HTML validation -- ensures structural integrity
 ```
 
 ### Module Responsibilities
@@ -249,12 +245,29 @@ WebsiteDeveloperBot/
 | Module | What it does |
 |---|---|
 | `src/worker.py` | Cloudflare Workers entry point. Routes POST `/webhook` for Telegram updates. Uses `ctx.waitUntil()` to process messages in the background. |
-| `src/bot.py` | Orchestrates the full flow: rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
-| `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude. Builds multi-turn messages so Claude understands follow-ups. |
+| `src/bot.py` | Orchestrates the full flow: authorization check, rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
+| `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-sonnet-4-20250514). Builds multi-turn messages so Claude understands follow-ups. |
 | `src/telegram.py` | Parses incoming Telegram update payloads and sends text replies via the Bot API. |
 | `src/github_client.py` | Reads and writes `index.html` in the website GitHub repo using the Contents API. |
-| `src/html_validator.py` | Pydantic model that validates every generated HTML before deployment — checks for DOCTYPE, all 9 page sections, sidebar, and footer. |
+| `src/html_validator.py` | Validates every generated HTML before deployment -- checks for DOCTYPE, all 9 page sections, sidebar, and footer. |
 | `local_server.py` | Flask app that mimics the Worker locally. Uses `requests` library for HTTP and in-memory dict for KV. |
+
+---
+
+## Access Control
+
+The bot restricts access to specific Telegram chat IDs. Edit the `ALLOWED_CHAT_IDS` list in `src/bot.py`:
+
+```python
+ALLOWED_CHAT_IDS = [
+    "8490004746",
+    # Add more chat IDs here
+]
+```
+
+To find your chat ID, send a message to the bot and check the logs (`npx wrangler tail --format pretty` or the Flask console).
+
+If `ALLOWED_CHAT_IDS` is empty, all users are allowed.
 
 ---
 
@@ -264,8 +277,8 @@ WebsiteDeveloperBot/
 - Update product names, descriptions, statuses, or regulatory documents
 - Modify text content (headings, descriptions, about us, etc.)
 - Update contact information
-- **Undo the last change** — send "undo", "rollback", or "revert" to restore the previous version
-- **Follow-up requests** — the bot remembers your recent conversation (last 20 messages, 24 hours) so you can say things like "also add...", "change that to...", or "remove the one I just added"
+- **Undo the last change** -- send "undo", "rollback", or "revert" to restore the previous version
+- **Follow-up requests** -- the bot remembers your recent conversation (last 20 messages, 24 hours) so you can say things like "also add...", "change that to...", or "remove the one I just added"
 
 ## What the Bot Will Not Do
 
@@ -304,12 +317,15 @@ History resets automatically after 24 hours of inactivity.
 ## Troubleshooting
 
 ### Bot doesn't respond
-- Check Cloudflare Workers logs: `npx wrangler tail`
+- Check Cloudflare Workers logs: `npx wrangler tail --format pretty`
 - Verify all secrets are set: `npx wrangler secret list`
-- Check the webhook is set: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+- Check the webhook is set: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
+- Look for `last_error_message` in the webhook info -- common issues:
+  - 404 errors: webhook URL is wrong
+  - Connection errors: Worker is not deployed
 
 ### HTML validation fails after an update
-- This means Claude's output was missing a required section. The bot will ask the user to try again. If it keeps failing, the Claude prompt in `src/claude_client.py` may need adjustment for edge cases.
+- This means Claude's output was missing a required section. The bot will ask the user to try again. If it keeps failing, the system prompt in `src/claude_client.py` may need adjustment.
 
 ### Changes don't appear on the website
 - Confirm Cloudflare Pages is connected to the correct GitHub repo and branch.
@@ -317,9 +333,10 @@ History resets automatically after 24 hours of inactivity.
 - Cloudflare Pages typically deploys within 1-2 minutes of a push.
 
 ### Webhook issues
-- Verify webhook status: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+- Verify webhook status: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
 - If switching between local/production, remember to update the webhook URL.
 - Telegram only supports HTTPS webhook URLs.
+- ngrok free tier uses `.ngrok-free.dev` (not `.ngrok-free.app`).
 
 ---
 
@@ -330,6 +347,6 @@ This project uses **two separate GitHub repositories**:
 | Repo | Purpose | Managed by |
 |---|---|---|
 | `WebsiteDeveloperBot` (this repo) | The bot application code | You (the developer) |
-| `pan-medical-website` (or your chosen name) | The website `index.html` | The bot (via GitHub API) |
+| `PanMedicalSupplies` (or your chosen name) | The website `index.html` | The bot (via GitHub API) |
 
 Cloudflare Pages watches the **website repo** and auto-deploys whenever the bot pushes an updated `index.html`. The bot application itself runs on **Cloudflare Workers** (deployed separately via `wrangler deploy`).

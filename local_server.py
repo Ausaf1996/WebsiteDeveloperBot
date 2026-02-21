@@ -1,7 +1,7 @@
 """Local development server.
 
 Run this for local testing:
-    pip install -r requirements.txt
+    pip install .
     cp .env.example .env   # then fill in your keys
     python local_server.py
 
@@ -67,6 +67,16 @@ class LocalEnv:
 env = LocalEnv()
 
 
+def _process_in_background(chat_id, text):
+    """Run handle_message in a new event loop, with error logging."""
+    try:
+        asyncio.run(handle_message(env, chat_id, text))
+    except Exception as e:
+        print(f"[ERROR] {chat_id}: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook_handler():
     """Receive incoming Telegram updates."""
@@ -74,10 +84,7 @@ def webhook_handler():
     chat_id, text = parse_incoming_message(body)
 
     if chat_id and text:
-        # Process in a background thread so we return 200 immediately
-        thread = threading.Thread(
-            target=lambda: asyncio.run(handle_message(env, chat_id, text))
-        )
+        thread = threading.Thread(target=_process_in_background, args=(chat_id, text))
         thread.start()
 
     return "OK", 200

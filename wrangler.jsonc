@@ -1,29 +1,28 @@
 {
-  "name": "website-developer-bot",
-  "main": "src/worker.py",
-  "compatibility_date": "2024-12-01",
-  "compatibility_flags": ["python_workers"],
-
-  "vars": {
-    "GITHUB_FILE_PATH": "index.html",
-    "GITHUB_BRANCH": "main"
-  },
-
-  // KV namespace for storing pending changes, rollback snapshots, and conversation history
-  // Create with: npx wrangler kv namespace create PENDING_CHANGES
-  // Then paste the id below
-  "kv_namespaces": [
-    {
-      "binding": "PENDING_CHANGES",
-      "id": "your_kv_namespace_id"
-    }
-  ]
-
-  // Add secrets via: npx wrangler secret put SECRET_NAME
-  // Required secrets:
-  //   TELEGRAM_BOT_TOKEN
-  //   CLAUDE_API_KEY
-  //   GITHUB_TOKEN
-  //   GITHUB_REPO_OWNER
-  //   GITHUB_REPO_NAME
+	"name": "website-developer-bot",
+	"main": "src/worker.py",
+	"compatibility_date": "2024-12-01",
+	"compatibility_flags": [
+		"python_workers"
+	],
+	"vars": {
+		"GITHUB_FILE_PATH": "index.html",
+		"GITHUB_BRANCH": "main"
+	},
+	// KV namespace for storing pending changes, rollback snapshots, and conversation history
+	// Create with: npx wrangler kv namespace create PENDING_CHANGES
+	// Then paste the id below
+	"kv_namespaces": [
+		{
+			"binding": "PENDING_CHANGES",
+			"id": "95b276df541e436c832a7969f9887323"
+		}
+	]
+	// Add secrets via: npx wrangler secret put SECRET_NAME
+	// Required secrets:
+	//   TELEGRAM_BOT_TOKEN
+	//   CLAUDE_API_KEY
+	//   GITHUB_TOKEN
+	//   GITHUB_REPO_OWNER
+	//   GITHUB_REPO_NAME
 }

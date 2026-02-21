@@ -1,0 +1,2 @@
+[console_scripts]
+dev = local_server:app.run

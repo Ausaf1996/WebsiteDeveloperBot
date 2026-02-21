@@ -102,31 +102,22 @@ async def process_request(env, current_html, user_message, history=None):
         return {
             "action": "error",
             "message": "Sorry, I'm having trouble processing your request right now. Please try again later.",
-            "_usage": None,
         }
 
     result = json.loads(response["text"])
     content_text = result["content"][0]["text"]
-    usage = result.get("usage")
 
     try:
-        parsed = json.loads(content_text)
+        return json.loads(content_text)
     except json.JSONDecodeError:
         # Try to extract JSON from the response if Claude wrapped it in text
         json_match = re.search(r"\{.*\}", content_text, re.DOTALL)
         if json_match:
             try:
-                parsed = json.loads(json_match.group())
+                return json.loads(json_match.group())
             except json.JSONDecodeError:
-                parsed = None
-        else:
-            parsed = None
-
-    if parsed is None:
-        parsed = {
+                pass
+        return {
             "action": "error",
             "message": "Sorry, I couldn't process that. Please try rephrasing your request.",
         }
-
-    parsed["_usage"] = usage
-    return parsed

@@ -6,14 +6,10 @@ It bridges the JS-based Workers environment to the Python bot logic.
 
 import json
 from js import Response, Object, Headers, URL, fetch
-from pyodide.ffi import to_js, create_proxy
+from pyodide.ffi import to_js
 
-try:
-    from src.bot import handle_message
-    from src.telegram import parse_incoming_message
-except ModuleNotFoundError:
-    from bot import handle_message
-    from telegram import parse_incoming_message
+from src.bot import handle_message
+from src.telegram import parse_incoming_message
 
 
 class WorkersEnv:
@@ -81,10 +77,8 @@ async def on_fetch(request, cf_env, ctx):
         chat_id, text = parse_incoming_message(body)
 
         if chat_id and text:
-            # Process in background so we return 200 quickly.
-            # waitUntil() expects a JS Promise — wrap the Python coroutine.
-            promise = to_js(_process_message(env, chat_id, text), dict_converter=Object.fromEntries)
-            ctx.waitUntil(promise)
+            # Process in background so we return 200 quickly
+            ctx.waitUntil(_process_message(env, chat_id, text))
 
         # Always return 200 to acknowledge the webhook
         return Response.new("OK", status=200)

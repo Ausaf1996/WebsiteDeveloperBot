@@ -1,23 +1,16 @@
-"""Validates that generated HTML is a complete, well-formed version of the PAN Medical website.
-
-Works in both standard Python and Cloudflare Workers (Pyodide) where pydantic is unavailable.
-"""
+from pydantic import BaseModel, field_validator
 
 
-class ValidatedHTML:
-    """Validates HTML content on construction. Raises ValueError if invalid."""
+class ValidatedHTML(BaseModel):
+    """Pydantic model to validate that the HTML output is a complete,
+    well-formed version of the PAN Medical website."""
 
-    def __init__(self, content: str):
-        self.content = content
-        self._validate()
+    content: str
 
-    def _validate(self):
-        self._must_be_complete_html()
-        self._must_have_required_sections()
-        self._must_have_sidebar_and_footer()
-
-    def _must_be_complete_html(self):
-        v_lower = self.content.lower()
+    @field_validator("content")
+    @classmethod
+    def must_be_complete_html(cls, v):
+        v_lower = v.lower()
         if "<!doctype html>" not in v_lower:
             raise ValueError("Missing <!DOCTYPE html> declaration.")
         if "<html" not in v_lower:
@@ -28,8 +21,11 @@ class ValidatedHTML:
             raise ValueError("Missing <head> section.")
         if "<body" not in v_lower:
             raise ValueError("Missing <body> section.")
+        return v
 
-    def _must_have_required_sections(self):
+    @field_validator("content")
+    @classmethod
+    def must_have_required_sections(cls, v):
         """Ensure all expected page sections still exist in the HTML."""
         required_sections = [
             "home",
@@ -43,15 +39,19 @@ class ValidatedHTML:
             "contact",
         ]
         for section_id in required_sections:
-            if f'id="{section_id}"' not in self.content:
+            if f'id="{section_id}"' not in v:
                 raise ValueError(
-                    f'Missing required section with id="{section_id}". '
+                    f"Missing required section with id=\"{section_id}\". "
                     "The update may have accidentally removed it."
                 )
+        return v
 
-    def _must_have_sidebar_and_footer(self):
+    @field_validator("content")
+    @classmethod
+    def must_have_sidebar_and_footer(cls, v):
         """Ensure sidebar navigation and footer are intact."""
-        if "sidebar-wrapper" not in self.content:
+        if "sidebar-wrapper" not in v:
             raise ValueError("Sidebar navigation is missing.")
-        if "footer-contact" not in self.content:
+        if "footer-contact" not in v:
             raise ValueError("Footer contact section is missing.")
+        return v

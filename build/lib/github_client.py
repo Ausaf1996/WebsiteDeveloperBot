@@ -15,13 +15,11 @@ async def get_current_html(env):
     headers = {
         "Authorization": f"token {env.github_token}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "WebsiteDeveloperBot",
     }
 
     response = await env.http_request("GET", url, headers=headers)
 
     if response["status"] != 200:
-        print(f"[GitHub] GET {url} → status {response['status']}: {response['text'][:300]}")
         return None, None
 
     data = json.loads(response["text"])
@@ -48,7 +46,6 @@ async def update_html(env, new_html, commit_message):
         "Authorization": f"token {env.github_token}",
         "Accept": "application/vnd.github.v3+json",
         "Content-Type": "application/json",
-        "User-Agent": "WebsiteDeveloperBot",
     }
     body = {
         "message": commit_message,
