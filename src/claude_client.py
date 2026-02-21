@@ -88,7 +88,7 @@ async def process_request(env, current_html, user_message, history=None):
     }
 
     body = {
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-opus-4-6",
         "max_tokens": 16000,
         "system": SYSTEM_PROMPT,
         "messages": _build_messages(current_html, user_message, history),

@@ -85,7 +85,7 @@ Orchestrates the full conversation flow:
 **Logging**: Prints `[USER {chat_id}]` and `[BOT {chat_id}]` for messages, plus token usage per Claude API call.
 
 ### src/claude_client.py (Claude API)
-- Model: `claude-sonnet-4-20250514`
+- Model: `claude-opus-4-6`
 - Max tokens: 16000
 - System prompt enforces strict rules: only modify what's explicitly requested, never remove/add unless asked.
 - `_build_messages()` constructs the messages array:

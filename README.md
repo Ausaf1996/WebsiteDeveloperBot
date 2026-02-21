@@ -246,7 +246,7 @@ WebsiteDeveloperBot/
 |---|---|
 | `src/worker.py` | Cloudflare Workers entry point. Routes POST `/webhook` for Telegram updates. Uses `ctx.waitUntil()` to process messages in the background. |
 | `src/bot.py` | Orchestrates the full flow: authorization check, rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
-| `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-sonnet-4-20250514). Builds multi-turn messages so Claude understands follow-ups. |
+| `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-opus-4-6). Builds multi-turn messages so Claude understands follow-ups. |
 | `src/telegram.py` | Parses incoming Telegram update payloads and sends text replies via the Bot API. |
 | `src/github_client.py` | Reads and writes `index.html` in the website GitHub repo using the Contents API. |
 | `src/html_validator.py` | Validates every generated HTML before deployment -- checks for DOCTYPE, all 9 page sections, sidebar, and footer. |
