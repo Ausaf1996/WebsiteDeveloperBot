@@ -47,6 +47,7 @@ async def get_logs(env):
 # Chat IDs allowed to use the bot. Add more IDs to this list.
 ALLOWED_CHAT_IDS = [
     "8490004746",
+    "1897441414"
 ]
 
 
