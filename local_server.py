@@ -64,6 +64,10 @@ class LocalEnv:
 
 env = LocalEnv()
 
+# Per-chat lock: tracks which chat IDs are currently being processed.
+_processing_chats = set()
+_processing_lock = threading.Lock()
+
 
 def _process_in_background(chat_id, text):
     """Run handle_message in a new event loop, with error logging."""
@@ -84,6 +88,9 @@ def _process_in_background(chat_id, text):
             ))
         except Exception:
             print(f"Failed to send error message to {chat_id}")
+    finally:
+        with _processing_lock:
+            _processing_chats.discard(chat_id)
 
 
 @app.route("/webhook", methods=["GET", "POST"])
@@ -109,6 +116,18 @@ def webhook_handler():
     chat_id, text = parse_incoming_message(body)
 
     if chat_id and text:
+        with _processing_lock:
+            if chat_id in _processing_chats:
+                # Already processing a message for this chat — tell user to wait
+                threading.Thread(
+                    target=lambda: asyncio.run(send_message(
+                        env, chat_id,
+                        "Please wait, I'm still working on your previous request."
+                    ))
+                ).start()
+                return "OK", 200
+            _processing_chats.add(chat_id)
+
         thread = threading.Thread(target=_process_in_background, args=(chat_id, text))
         thread.start()
 

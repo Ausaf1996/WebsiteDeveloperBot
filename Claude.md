@@ -3,7 +3,7 @@
 Telegram bot that updates the PAN Medical & Industrial Supplies website via Claude AI.
 Non-technical users send plain-English messages on Telegram; the bot applies changes to the live site.
 
-Live website: https://panmedical.pages.dev
+Live website: https://panmedicalsupplies.com
 Production server: https://website-developer-bot-843979520931.us-central1.run.app/webhook
 
 ## Architecture
@@ -69,7 +69,8 @@ WebsiteDeveloperBot/
   - `GET /webhook?usage` -- usage/token log entries from KV.
 - In-memory KV does not enforce TTLs. KV data resets on container cold starts, but that's acceptable since pending confirmations, rollback, and history all have short effective lifetimes anyway.
 - Uses `PORT` env var (Cloud Run sets this to 8080; defaults to 8787 locally).
-- In production, gunicorn runs the app with 120s worker timeout.
+- In production, gunicorn runs the app with 300s worker timeout.
+- **Per-chat concurrency lock** -- if a message is already being processed for a chat, new messages from that chat get a "Please wait" reply instead of racing on shared KV state. Different chats process concurrently.
 
 ### src/worker.py (Cloudflare Workers entry point -- legacy)
 - Kept for reference. Was the production entry point when deployed on Cloudflare Workers.
@@ -196,12 +197,12 @@ Remember to reset the webhook to the Cloud Run URL when done testing locally.
 ### Viewing production logs
 ```bash
 export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.13
-gcloud run logs read website-developer-bot --region us-central1 --limit 50
+gcloud run services logs read website-developer-bot --region us-central1 --limit 50
 ```
 
 Or stream live:
 ```bash
-gcloud run logs tail website-developer-bot --region us-central1
+gcloud run services logs tail website-developer-bot --region us-central1
 ```
 
 ### Checking webhook status

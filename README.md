@@ -1,6 +1,6 @@
 # Website Developer Bot
 
-A Telegram bot that lets non-technical users update the [PAN Medical & Industrial Supplies](https://panmedical.pages.dev) website by sending plain-English messages. The bot uses Claude AI to understand requests, modifies the HTML, validates it, and deploys the changes automatically.
+A Telegram bot that lets non-technical users update the [PAN Medical & Industrial Supplies](https://panmedicalsupplies.com) website by sending plain-English messages. The bot uses Claude AI to understand requests, modifies the HTML, validates it, and deploys the changes automatically.
 
 ## How It Works
 
@@ -230,7 +230,7 @@ WebsiteDeveloperBot/
 
 | Module | What it does |
 |---|---|
-| `local_server.py` | Flask app serving as the main entry point. Handles POST `/webhook` for Telegram updates, GET `/webhook?logs` for error logs, GET `/webhook?usage` for token usage logs. Runs with gunicorn on Cloud Run, or standalone locally. |
+| `local_server.py` | Flask app serving as the main entry point. Handles POST `/webhook` for Telegram updates, GET `/webhook?logs` for error logs, GET `/webhook?usage` for token usage logs. Includes per-chat concurrency lock to prevent race conditions. Runs with gunicorn on Cloud Run, or standalone locally. |
 | `src/bot.py` | Orchestrates the full flow: authorization check, rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
 | `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-opus-4-6). Builds multi-turn messages so Claude understands follow-ups. |
 | `src/telegram.py` | Parses incoming Telegram update payloads and sends text replies via the Bot API. |
@@ -251,7 +251,7 @@ ALLOWED_CHAT_IDS = [
 ]
 ```
 
-To find your chat ID, send a message to the bot and check the logs (`gcloud run logs read website-developer-bot --region us-central1` or the Flask console).
+To find your chat ID, send a message to the bot and check the logs (`gcloud run services logs read website-developer-bot --region us-central1` or the Flask console).
 
 If `ALLOWED_CHAT_IDS` is empty, all users are allowed.
 
@@ -304,12 +304,12 @@ History resets on container cold starts or after 24 hours of inactivity (locally
 
 ### View production logs
 ```bash
-gcloud run logs read website-developer-bot --region us-central1 --limit 50
+gcloud run services logs read website-developer-bot --region us-central1 --limit 50
 ```
 
 ### Stream live logs
 ```bash
-gcloud run logs tail website-developer-bot --region us-central1
+gcloud run services logs tail website-developer-bot --region us-central1
 ```
 
 ### Check error logs via HTTP
@@ -332,7 +332,7 @@ curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
 ## Troubleshooting
 
 ### Bot doesn't respond
-- Check Cloud Run logs: `gcloud run logs read website-developer-bot --region us-central1 --limit 50`
+- Check Cloud Run logs: `gcloud run services logs read website-developer-bot --region us-central1 --limit 50`
 - Check the webhook is set: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
 - Look for `last_error_message` in the webhook info -- common issues:
   - 404 errors: webhook URL is wrong
