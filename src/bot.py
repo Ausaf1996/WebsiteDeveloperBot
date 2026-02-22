@@ -12,6 +12,22 @@ HISTORY_TTL = 86400  # 24 hours
 LOG_TTL = 86400  # 24 hours
 MAX_LOG_ENTRIES = 50
 
+# Sonnet 4.6 pricing (per million tokens)
+INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
+OUTPUT_COST_PER_M = 15.0  # $15 per 1M output tokens
+USD_TO_INR = 87.0
+
+
+def _calculate_cost_inr(usage):
+    """Calculate API cost in INR from token usage dict."""
+    if not usage:
+        return None
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    cost_usd = (input_tokens / 1_000_000) * INPUT_COST_PER_M + (output_tokens / 1_000_000) * OUTPUT_COST_PER_M
+    cost_inr = cost_usd * USD_TO_INR
+    return cost_inr
+
 
 async def log_error(env, chat_id, error_type, detail):
     """Append an error entry to the KV-based error log (24h TTL)."""
@@ -274,6 +290,9 @@ async def _handle_new_request(env, chat_id, message_text):
     usage = result.pop("_usage", None)
     action = result.get("action")
 
+    cost_inr = _calculate_cost_inr(usage)
+    cost_line = f"\n\n_Cost: Rs {cost_inr:.2f}_" if cost_inr is not None else ""
+
     if action == "update":
         # Store the pending change in KV for confirmation
         pending = json.dumps({
@@ -292,6 +311,7 @@ async def _handle_new_request(env, chat_id, message_text):
             f"I will make these changes:\n\n"
             f"{result['summary']}\n\n"
             f"Reply *YES* to confirm or *NO* to cancel."
+            f"{cost_line}"
         )
         await telegram.send_message(env, chat_id, reply)
         print(f"[BOT  {chat_id}] {result['summary']}")
@@ -299,14 +319,14 @@ async def _handle_new_request(env, chat_id, message_text):
 
     elif action in ("clarify", "out_of_scope", "off_topic"):
         await _append_history(env, chat_id, "bot", result["message"])
-        await telegram.send_message(env, chat_id, result["message"])
+        await telegram.send_message(env, chat_id, result["message"] + cost_line)
         print(f"[BOT  {chat_id}] {result['message']}")
         await _log_usage(env, chat_id, usage, message_text)
 
     else:
         msg = result.get("message", "Sorry, something went wrong. Please try again.")
         await _append_history(env, chat_id, "bot", msg)
-        await telegram.send_message(env, chat_id, msg)
+        await telegram.send_message(env, chat_id, msg + cost_line)
         print(f"[BOT  {chat_id}] {msg}")
         await _log_usage(env, chat_id, usage, message_text)
 
