@@ -1,0 +1,8 @@
+.git
+.env
+.wrangler
+__pycache__
+node_modules
+build
+.claude
+*.md

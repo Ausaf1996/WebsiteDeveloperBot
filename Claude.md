@@ -4,7 +4,7 @@ Telegram bot that updates the PAN Medical & Industrial Supplies website via Clau
 Non-technical users send plain-English messages on Telegram; the bot applies changes to the live site.
 
 Live website: https://panmedical.pages.dev
-Production worker: https://website-developer-bot.ausaf1996.workers.dev/webhook
+Production server: https://website-developer-bot-843979520931.us-central1.run.app/webhook
 
 ## Architecture
 
@@ -12,13 +12,13 @@ Production worker: https://website-developer-bot.ausaf1996.workers.dev/webhook
 Telegram Message
       |
       v
-Cloudflare Worker  (src/worker.py)  -- or --  Flask server (local_server.py)
+Google Cloud Run   (local_server.py + gunicorn)
       |
       +---> Telegram API   (src/telegram.py)     -- parse incoming, send replies
       +---> Claude API     (src/claude_client.py) -- understand request, generate updated HTML
       +---> GitHub API     (src/github_client.py) -- fetch current HTML, push updates
       +---> HTML Validator (src/html_validator.py) -- validate HTML before deploying
-      +---> KV Store       -- pending confirmations, rollback snapshots, conversation history
+      +---> In-memory KV   -- pending confirmations, rollback snapshots, conversation history
               |
               v
       Cloudflare Pages auto-deploys from the GitHub website repo
@@ -32,7 +32,7 @@ Cloudflare Worker  (src/worker.py)  -- or --  Flask server (local_server.py)
 | `PanMedicalSupplies` (GitHub: Ausaf1996) | Website `index.html` | The bot (via GitHub API) |
 
 Cloudflare Pages watches the website repo and auto-deploys on every push.
-The bot application runs on Cloudflare Workers (deployed via `wrangler deploy`).
+The bot application runs on Google Cloud Run (deployed via `gcloud run deploy`).
 
 ## Project Structure
 
@@ -40,14 +40,16 @@ The bot application runs on Cloudflare Workers (deployed via `wrangler deploy`).
 WebsiteDeveloperBot/
 +-- .gitignore              # Excludes .env, __pycache__, .wrangler, node_modules, build/
 +-- .env                    # Local environment variables (NOT committed)
-+-- pyproject.toml          # Python project config and local dev dependencies
-+-- wrangler.jsonc          # Cloudflare Workers deployment config
-+-- local_server.py         # Flask server for local testing
++-- .dockerignore           # Excludes .git, .env, etc. from Docker image
++-- Dockerfile              # Container definition for Cloud Run
++-- pyproject.toml          # Python project config and dependencies
++-- wrangler.jsonc          # Cloudflare Workers config (legacy, kept for reference)
++-- local_server.py         # Flask server -- runs both locally and on Cloud Run
 +-- Claude.md               # This file -- project context for AI assistants
 +-- README.md               # Human-readable setup and deployment guide
 +-- src/
     +-- __init__.py
-    +-- worker.py           # Cloudflare Workers entry point (Pyodide runtime)
+    +-- worker.py           # Cloudflare Workers entry point (legacy, kept for reference)
     +-- bot.py              # Core logic: message routing, confirmation flow, rollback
     +-- claude_client.py    # Claude API integration with strict update-only prompt
     +-- telegram.py         # Telegram Bot API -- parse updates, send messages
@@ -57,13 +59,23 @@ WebsiteDeveloperBot/
 
 ## Module Details
 
-### src/worker.py (Cloudflare Workers entry point)
+### local_server.py (Flask server -- production & local)
+- Flask app serving as the main entry point for both Cloud Run (production) and local development.
+- `LocalEnv` class implements the shared `env` interface using `requests` library for HTTP and in-memory dict for KV.
+- Processes Telegram messages in background threads (each with its own asyncio event loop).
+- **Endpoints**:
+  - `POST /webhook` -- incoming Telegram updates.
+  - `GET /webhook?logs` -- error log entries from KV.
+  - `GET /webhook?usage` -- usage/token log entries from KV.
+- In-memory KV does not enforce TTLs. KV data resets on container cold starts, but that's acceptable since pending confirmations, rollback, and history all have short effective lifetimes anyway.
+- Uses `PORT` env var (Cloud Run sets this to 8080; defaults to 8787 locally).
+- In production, gunicorn runs the app with 120s worker timeout.
+
+### src/worker.py (Cloudflare Workers entry point -- legacy)
+- Kept for reference. Was the production entry point when deployed on Cloudflare Workers.
 - Defines `on_fetch(request, cf_env, ctx)` -- the Workers fetch handler.
 - `WorkersEnv` class adapts Cloudflare bindings (secrets, KV) into the shared `env` interface.
-- Uses `ctx.waitUntil(promise)` to process messages in the background (returns 200 immediately).
-- **Critical**: Python coroutines must be wrapped with `to_js()` before passing to `ctx.waitUntil()` because it expects a JS Promise, not a Python coroutine.
-- Only handles POST `/webhook`.
-- Imports use `try/except` fallback: `from src.X` (local) -> `from X` (Cloudflare Workers).
+- **No longer used in production** -- Cloud Run uses `local_server.py` instead.
 
 ### src/bot.py (Core orchestration)
 Orchestrates the full conversation flow:
@@ -103,26 +115,20 @@ Orchestrates the full conversation flow:
 ### src/github_client.py (GitHub Contents API)
 - `get_current_html(env)` -- fetches `index.html` + SHA from the website repo. Returns `(content, sha)` or `(None, None)`.
 - `update_html(env, new_html, commit_message)` -- commits updated HTML. Fetches current SHA first (required by GitHub API).
-- **Critical**: All requests must include `User-Agent: WebsiteDeveloperBot` header. The Workers `fetch` API does not add one automatically (unlike the `requests` library used locally), and GitHub rejects requests without it.
+- **Critical**: All requests must include `User-Agent: WebsiteDeveloperBot` header. GitHub rejects requests without it.
 - Logs non-200 responses for debugging.
 
 ### src/html_validator.py (HTML validation)
-- Plain Python class -- **NOT pydantic** (pydantic is not available in Cloudflare Workers Pyodide runtime).
+- Plain Python class -- **NOT pydantic** (kept plain for compatibility).
 - `ValidatedHTML(content=html_string)` -- validates on construction, raises `ValueError` if invalid.
 - Three checks:
   1. `_must_be_complete_html` -- DOCTYPE, html, head, body tags.
   2. `_must_have_required_sections` -- all 9 section IDs: home, about, api, formulations, contrast, devices, chemicals, animal, contact.
   3. `_must_have_sidebar_and_footer` -- sidebar-wrapper and footer-contact elements.
 
-### local_server.py (Local development)
-- Flask app on port 8787 mimicking the Cloudflare Worker.
-- `LocalEnv` class implements the same `env` interface using `requests` library for HTTP and in-memory dict for KV.
-- Processes messages in background threads (each with its own asyncio event loop).
-- Local KV does not enforce TTLs.
-
 ## Environment Interface
 
-Both `WorkersEnv` (production) and `LocalEnv` (local) implement this interface. All business logic uses only these methods, making it runtime-agnostic:
+`LocalEnv` (used in both production and local dev) implements this interface. All business logic uses only these methods:
 
 ```python
 env.telegram_bot_token: str
@@ -143,40 +149,36 @@ await env.kv_delete(key)
 
 | Variable | Description | Where set |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather | `.env` (local) / `wrangler secret` (prod) |
-| `CLAUDE_API_KEY` | Anthropic API key | `.env` (local) / `wrangler secret` (prod) |
-| `GITHUB_TOKEN` | GitHub PAT with repo write access | `.env` (local) / `wrangler secret` (prod) |
-| `GITHUB_REPO_OWNER` | GitHub username owning the website repo | `.env` (local) / `wrangler secret` (prod) |
-| `GITHUB_REPO_NAME` | Name of the website HTML repo | `.env` (local) / `wrangler secret` (prod) |
-| `GITHUB_FILE_PATH` | Path to HTML file in repo (default: `index.html`) | `.env` (local) / `wrangler.jsonc` vars (prod) |
-| `GITHUB_BRANCH` | Branch to update (default: `main`) | `.env` (local) / `wrangler.jsonc` vars (prod) |
-
-## Cloudflare Workers Python (Pyodide) Constraints
-
-These are critical to know when modifying the codebase:
-
-1. **No pydantic** -- Pyodide does not include pydantic. Use plain Python classes for validation.
-2. **No `requests` library** -- use the global `fetch` API via `from js import fetch`.
-3. **Flat module structure** -- Wrangler flattens `src/` files. Imports like `from src.bot import X` fail at runtime. Use `try/except` fallback pattern:
-   ```python
-   try:
-       from src.bot import handle_message      # works locally
-   except ModuleNotFoundError:
-       from bot import handle_message           # works in Cloudflare Workers
-   ```
-4. **JS interop** -- Python coroutines must be converted to JS Promises with `to_js()` before passing to JS APIs like `ctx.waitUntil()`.
-5. **GitHub API needs User-Agent** -- Workers `fetch` does not add a User-Agent header automatically. Must include `"User-Agent": "WebsiteDeveloperBot"` explicitly in all GitHub API requests.
-6. **Available built-in modules**: `json`, `re`, `base64`, `asyncio` all work fine. Third-party packages generally do NOT work unless they are bundled in Pyodide.
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather | `.env` (local) / Cloud Run env vars (prod) |
+| `CLAUDE_API_KEY` | Anthropic API key | `.env` (local) / Cloud Run env vars (prod) |
+| `GITHUB_TOKEN` | GitHub PAT with repo write access | `.env` (local) / Cloud Run env vars (prod) |
+| `GITHUB_REPO_OWNER` | GitHub username owning the website repo | `.env` (local) / Cloud Run env vars (prod) |
+| `GITHUB_REPO_NAME` | Name of the website HTML repo | `.env` (local) / Cloud Run env vars (prod) |
+| `GITHUB_FILE_PATH` | Path to HTML file in repo (default: `index.html`) | `.env` (local) / Cloud Run env vars (prod) |
+| `GITHUB_BRANCH` | Branch to update (default: `main`) | `.env` (local) / Cloud Run env vars (prod) |
+| `PORT` | Server port (default: 8787 local, 8080 Cloud Run) | Set automatically by Cloud Run |
 
 ## Deployment
 
-### Production (Cloudflare Workers)
+### Production (Google Cloud Run)
+
 ```bash
-npx wrangler deploy
+export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.13
+gcloud run deploy website-developer-bot \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars "TELEGRAM_BOT_TOKEN=...,CLAUDE_API_KEY=...,GITHUB_TOKEN=...,GITHUB_REPO_OWNER=...,GITHUB_REPO_NAME=...,GITHUB_FILE_PATH=index.html,GITHUB_BRANCH=main" \
+  --timeout=300 \
+  --memory=512Mi \
+  --cpu=1 \
+  --min-instances=0 \
+  --max-instances=1
 ```
-Then set the Telegram webhook (one-time, or after changing worker URL):
+
+Then set the Telegram webhook (one-time, or after changing service URL):
 ```bash
-curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://website-developer-bot.ausaf1996.workers.dev/webhook"
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://website-developer-bot-843979520931.us-central1.run.app/webhook"
 ```
 
 ### Local development
@@ -189,11 +191,17 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<NGROK_URL>/web
 ```
 
 Note: ngrok free tier uses `.ngrok-free.dev` domain (not `.ngrok-free.app`).
-Remember to reset the webhook to the Cloudflare URL when done testing locally.
+Remember to reset the webhook to the Cloud Run URL when done testing locally.
 
 ### Viewing production logs
 ```bash
-npx wrangler tail --format pretty
+export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.13
+gcloud run logs read website-developer-bot --region us-central1 --limit 50
+```
+
+Or stream live:
+```bash
+gcloud run logs tail website-developer-bot --region us-central1
 ```
 
 ### Checking webhook status
@@ -201,13 +209,20 @@ npx wrangler tail --format pretty
 curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
 ```
 
+### Checking error/usage logs via HTTP
+```bash
+curl "https://website-developer-bot-843979520931.us-central1.run.app/webhook?logs"
+curl "https://website-developer-bot-843979520931.us-central1.run.app/webhook?usage"
+```
+
 ## Key Design Decisions
 
-- **No database** -- Cloudflare KV stores three lightweight things per chat: pending (1hr TTL), rollback (24hr TTL), history (24hr TTL). All expire automatically.
+- **Google Cloud Run** -- Migrated from Cloudflare Workers because Workers' free plan has a 30-second `waitUntil()` limit and 10ms CPU cap. Claude Opus responses with full HTML take 30-60+ seconds. Cloud Run has a generous free tier, 300s request timeout, and no CPU limits.
+- **In-memory KV** -- Uses a simple Python dict for KV storage. Data resets on container cold starts, but all stored data (pending confirmations, rollback snapshots, conversation history) has short effective lifetimes anyway. No external database needed.
 - **One-level rollback** -- only the most recent change can be undone. After rollback, no further undo until a new change is applied.
 - **Confirmation required** -- every change must be confirmed with YES/NO before it is applied, preventing accidental updates.
 - **HTML fetched fresh each request** -- current HTML is fetched from GitHub on every new request, never stored in conversation history. Only one copy of the HTML per API call.
 - **Conversation history is text only** -- the last 20 messages (plain text, no HTML) are stored and replayed to Claude for follow-up context.
-- **Environment abstraction** -- `WorkersEnv` (production) and `LocalEnv` (dev) both implement the same interface so all business logic is runtime-agnostic.
+- **Environment abstraction** -- `LocalEnv` implements a clean interface so all business logic is runtime-agnostic.
 - **Two repos** -- this repo holds the bot application; a separate repo (`PanMedicalSupplies`) holds the website HTML. Cloudflare Pages watches the website repo for auto-deploy.
 - **Simple scope** -- only textual updates (products, descriptions, contact info). Complex features (databases, new pages, interactive elements) are explicitly out of scope.

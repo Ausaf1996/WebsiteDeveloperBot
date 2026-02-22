@@ -9,7 +9,7 @@ User sends Telegram message
         |  "Add Paracetamol to the Pharmaceuticals section"
         v
 +---------------------+
-|  Cloudflare Worker   |--- Fetches current website HTML from GitHub
+|  Google Cloud Run    |--- Fetches current website HTML from GitHub
 |  (this application)  |--- Sends HTML + request to Claude API
 |                      |--- Claude generates updated HTML + summary
 |                      |--- Stores pending change, asks user to confirm
@@ -71,11 +71,11 @@ Bot:   Done! The last change has been undone.
 
 Before setting up, you need:
 
-1. **A Cloudflare account** -- free tier works
+1. **A Google Cloud account** -- free tier works (Cloud Run free tier: 2M requests/month)
 2. **A Telegram bot** -- create one via [BotFather](https://t.me/BotFather) on Telegram
 3. **An Anthropic API key** -- from [console.anthropic.com](https://console.anthropic.com/)
 4. **A GitHub account** with a **separate repository** that holds your website's `index.html`
-5. **Node.js** (v18+) -- for the `wrangler` CLI
+5. **gcloud CLI** -- install via `brew install google-cloud-sdk` (macOS) or [cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install)
 6. **Python** (3.11+) -- for local development
 
 ---
@@ -90,9 +90,6 @@ cd WebsiteDeveloperBot
 
 # Install Python dependencies for local development
 pip install .
-
-# Install wrangler CLI for Cloudflare deployment
-npm install -g wrangler
 ```
 
 ### 2. Create the website repository
@@ -139,40 +136,28 @@ GITHUB_FILE_PATH=index.html
 GITHUB_BRANCH=main
 ```
 
-#### For Cloudflare (production)
+### 6. Deploy to Google Cloud Run
 
 ```bash
-# Create the KV namespace for pending confirmations, rollback, and history
-npx wrangler kv namespace create PENDING_CHANGES
-```
-
-This outputs an ID -- paste it into `wrangler.jsonc` replacing the existing KV namespace ID.
-
-Then add each secret:
-
-```bash
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put CLAUDE_API_KEY
-npx wrangler secret put GITHUB_TOKEN
-npx wrangler secret put GITHUB_REPO_OWNER
-npx wrangler secret put GITHUB_REPO_NAME
-```
-
-Each command will prompt you to paste the value.
-
-### 6. Deploy to Cloudflare Workers
-
-```bash
-# Login to Cloudflare (first time only)
-npx wrangler login
+# Authenticate (first time only)
+gcloud init
 
 # Deploy
-npx wrangler deploy
+gcloud run deploy website-developer-bot \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars "TELEGRAM_BOT_TOKEN=...,CLAUDE_API_KEY=...,GITHUB_TOKEN=...,GITHUB_REPO_OWNER=...,GITHUB_REPO_NAME=...,GITHUB_FILE_PATH=index.html,GITHUB_BRANCH=main" \
+  --timeout=300 \
+  --memory=512Mi \
+  --cpu=1 \
+  --min-instances=0 \
+  --max-instances=1
 ```
 
-After deploying, wrangler will print the Worker URL, e.g.:
+After deploying, gcloud will print the Service URL, e.g.:
 ```
-https://website-developer-bot.your-subdomain.workers.dev
+https://website-developer-bot-843979520931.us-central1.run.app
 ```
 
 ### 7. Set the Telegram webhook
@@ -180,7 +165,7 @@ https://website-developer-bot.your-subdomain.workers.dev
 Tell Telegram where to send updates by calling the `setWebhook` API:
 
 ```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://website-developer-bot.your-subdomain.workers.dev/webhook"
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<CLOUD_RUN_URL>/webhook"
 ```
 
 You should get back:
@@ -215,7 +200,7 @@ Then set the webhook to your ngrok URL (temporarily, for testing):
 curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<NGROK_URL>/webhook"
 ```
 
-Remember to reset the webhook to your Cloudflare URL when done testing locally.
+Remember to reset the webhook to your Cloud Run URL when done testing locally.
 
 ---
 
@@ -225,14 +210,15 @@ Remember to reset the webhook to your Cloudflare URL when done testing locally.
 WebsiteDeveloperBot/
 +-- .gitignore              # Excludes .env, __pycache__, .wrangler, node_modules, build/
 +-- .env                    # Local environment variables (NOT committed)
-+-- pyproject.toml          # Python project config and local dev dependencies
-+-- wrangler.jsonc          # Cloudflare Workers deployment config
-+-- local_server.py         # Flask server for local testing
++-- .dockerignore           # Excludes .git, .env, etc. from Docker image
++-- Dockerfile              # Container definition for Cloud Run
++-- pyproject.toml          # Python project config and dependencies
++-- local_server.py         # Flask server (production on Cloud Run + local dev)
 +-- Claude.md               # Project context for AI assistants (Claude Code, etc.)
 +-- README.md               # This file
 +-- src/
     +-- __init__.py
-    +-- worker.py           # Cloudflare Workers entry point (Pyodide runtime)
+    +-- worker.py           # Cloudflare Workers entry point (legacy)
     +-- bot.py              # Core logic: message routing, confirmation flow, rollback
     +-- claude_client.py    # Claude API -- understands requests, generates HTML
     +-- telegram.py         # Telegram Bot API -- parse updates, send messages
@@ -244,13 +230,13 @@ WebsiteDeveloperBot/
 
 | Module | What it does |
 |---|---|
-| `src/worker.py` | Cloudflare Workers entry point. Routes POST `/webhook` for Telegram updates. Uses `ctx.waitUntil()` to process messages in the background. |
+| `local_server.py` | Flask app serving as the main entry point. Handles POST `/webhook` for Telegram updates, GET `/webhook?logs` for error logs, GET `/webhook?usage` for token usage logs. Runs with gunicorn on Cloud Run, or standalone locally. |
 | `src/bot.py` | Orchestrates the full flow: authorization check, rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
 | `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-opus-4-6). Builds multi-turn messages so Claude understands follow-ups. |
 | `src/telegram.py` | Parses incoming Telegram update payloads and sends text replies via the Bot API. |
 | `src/github_client.py` | Reads and writes `index.html` in the website GitHub repo using the Contents API. |
 | `src/html_validator.py` | Validates every generated HTML before deployment -- checks for DOCTYPE, all 9 page sections, sidebar, and footer. |
-| `local_server.py` | Flask app that mimics the Worker locally. Uses `requests` library for HTTP and in-memory dict for KV. |
+| `src/worker.py` | Legacy Cloudflare Workers entry point. Kept for reference. |
 
 ---
 
@@ -265,7 +251,7 @@ ALLOWED_CHAT_IDS = [
 ]
 ```
 
-To find your chat ID, send a message to the bot and check the logs (`npx wrangler tail --format pretty` or the Flask console).
+To find your chat ID, send a message to the bot and check the logs (`gcloud run logs read website-developer-bot --region us-central1` or the Flask console).
 
 If `ALLOWED_CHAT_IDS` is empty, all users are allowed.
 
@@ -296,33 +282,61 @@ The bot will politely inform the user when a request is out of scope.
 
 ### Rollback (Undo)
 
-Before every confirmed update, the bot saves the current HTML to KV as a rollback snapshot (24-hour TTL). If the user sends **UNDO**, **ROLLBACK**, or **REVERT**, the bot restores the previous version and pushes it to GitHub.
+Before every confirmed update, the bot saves the current HTML as a rollback snapshot. If the user sends **UNDO**, **ROLLBACK**, or **REVERT**, the bot restores the previous version and pushes it to GitHub.
 
 - Only the **most recent** change can be undone (one level deep).
-- The rollback snapshot expires after 24 hours.
+- The rollback snapshot resets on container cold starts.
 - After a rollback, there is no further undo available until a new change is applied.
 
 ### Conversation History
 
-The bot stores the last 20 messages (user + bot) per chat ID in KV (24-hour TTL). This history is sent to Claude as multi-turn context, enabling:
+The bot stores the last 20 messages (user + bot) per chat ID in memory. This history is sent to Claude as multi-turn context, enabling:
 
 - **Follow-up requests**: "Also add Ibuprofen to that same section"
 - **Corrections**: "Actually change the status to Lab Scale instead"
 - **References**: "Remove the product I just added"
 
-History resets automatically after 24 hours of inactivity.
+History resets on container cold starts or after 24 hours of inactivity (locally).
+
+---
+
+## Monitoring & Logs
+
+### View production logs
+```bash
+gcloud run logs read website-developer-bot --region us-central1 --limit 50
+```
+
+### Stream live logs
+```bash
+gcloud run logs tail website-developer-bot --region us-central1
+```
+
+### Check error logs via HTTP
+```bash
+curl "https://website-developer-bot-843979520931.us-central1.run.app/webhook?logs"
+```
+
+### Check usage/token logs via HTTP
+```bash
+curl "https://website-developer-bot-843979520931.us-central1.run.app/webhook?usage"
+```
+
+### Check webhook status
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
+```
 
 ---
 
 ## Troubleshooting
 
 ### Bot doesn't respond
-- Check Cloudflare Workers logs: `npx wrangler tail --format pretty`
-- Verify all secrets are set: `npx wrangler secret list`
+- Check Cloud Run logs: `gcloud run logs read website-developer-bot --region us-central1 --limit 50`
 - Check the webhook is set: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
 - Look for `last_error_message` in the webhook info -- common issues:
   - 404 errors: webhook URL is wrong
-  - Connection errors: Worker is not deployed
+  - Connection errors: service is not deployed or is sleeping
 
 ### HTML validation fails after an update
 - This means Claude's output was missing a required section. The bot will ask the user to try again. If it keeps failing, the system prompt in `src/claude_client.py` may need adjustment.
@@ -338,6 +352,10 @@ History resets automatically after 24 hours of inactivity.
 - Telegram only supports HTTPS webhook URLs.
 - ngrok free tier uses `.ngrok-free.dev` (not `.ngrok-free.app`).
 
+### Cold starts
+- Cloud Run may take a few seconds to start up after being idle. The first request after a cold start may be slower.
+- In-memory KV data (pending confirmations, rollback, history) is lost on cold starts. This is by design -- all data has short lifetimes.
+
 ---
 
 ## Two-Repo Setup Explained
@@ -349,4 +367,18 @@ This project uses **two separate GitHub repositories**:
 | `WebsiteDeveloperBot` (this repo) | The bot application code | You (the developer) |
 | `PanMedicalSupplies` (or your chosen name) | The website `index.html` | The bot (via GitHub API) |
 
-Cloudflare Pages watches the **website repo** and auto-deploys whenever the bot pushes an updated `index.html`. The bot application itself runs on **Cloudflare Workers** (deployed separately via `wrangler deploy`).
+Cloudflare Pages watches the **website repo** and auto-deploys whenever the bot pushes an updated `index.html`. The bot application itself runs on **Google Cloud Run** (deployed via `gcloud run deploy`).
+
+---
+
+## Redeploying
+
+After making code changes, redeploy with:
+
+```bash
+gcloud run deploy website-developer-bot \
+  --source . \
+  --region us-central1
+```
+
+Environment variables persist between deploys -- you only need `--set-env-vars` when changing them.

@@ -1,15 +1,13 @@
-"""Local development server.
+"""Flask server for local development and Google Cloud Run production.
 
-Run this for local testing:
+Local development:
     pip install .
     cp .env.example .env   # then fill in your keys
     python local_server.py
 
-The server listens on http://localhost:8787/webhook
-Use a tool like ngrok to expose it for Telegram webhook:
-    ngrok http 8787
-Then set the webhook:
-    curl https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=https://<NGROK_URL>/webhook
+Cloud Run:
+    Deployed via Dockerfile with gunicorn.
+    Environment variables set via --set-env-vars on deploy.
 """
 
 import asyncio
@@ -19,10 +17,10 @@ import threading
 
 import requests as req_lib
 from dotenv import load_dotenv
-from flask import Flask, request
+from flask import Flask, request, Response
 
-from src.bot import handle_message
-from src.telegram import parse_incoming_message
+from src.bot import handle_message, get_logs, log_error
+from src.telegram import parse_incoming_message, send_message
 
 load_dotenv()
 
@@ -30,7 +28,7 @@ app = Flask(__name__)
 
 
 class LocalEnv:
-    """Local development environment — uses requests library and in-memory KV."""
+    """Environment adapter — uses requests library and in-memory KV."""
 
     def __init__(self):
         self.telegram_bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -75,11 +73,38 @@ def _process_in_background(chat_id, text):
         print(f"[ERROR] {chat_id}: {e}")
         import traceback
         traceback.print_exc()
+        try:
+            asyncio.run(log_error(env, chat_id, "unhandled_exception", str(e)))
+        except Exception:
+            pass
+        try:
+            asyncio.run(send_message(
+                env, chat_id,
+                "Sorry, something went wrong while processing your message. Please try again."
+            ))
+        except Exception:
+            print(f"Failed to send error message to {chat_id}")
 
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook_handler():
-    """Receive incoming Telegram updates."""
+    """Handle incoming Telegram updates (POST) and log/usage queries (GET)."""
+
+    if request.method == "GET":
+        # /webhook?logs — return error logs
+        if request.args.get("logs") is not None:
+            logs = asyncio.run(get_logs(env))
+            return Response(json.dumps(logs, indent=2), mimetype="application/json")
+
+        # /webhook?usage — return usage logs
+        if request.args.get("usage") is not None:
+            raw = asyncio.run(env.kv_get("usage_log"))
+            usage_logs = json.loads(raw) if raw else []
+            return Response(json.dumps(usage_logs, indent=2), mimetype="application/json")
+
+        return "OK", 200
+
+    # POST: incoming Telegram update
     body = request.get_json()
     chat_id, text = parse_incoming_message(body)
 
@@ -91,10 +116,11 @@ def webhook_handler():
 
 
 if __name__ == "__main__":
-    print("Starting local development server on http://localhost:8787")
-    print("Webhook URL: http://localhost:8787/webhook")
+    port = int(os.environ.get("PORT", 8787))
+    print(f"Starting server on http://localhost:{port}")
+    print(f"Webhook URL: http://localhost:{port}/webhook")
     print()
-    print("Use ngrok to expose: ngrok http 8787")
+    print(f"Use ngrok to expose: ngrok http {port}")
     print("Then set Telegram webhook:")
     print(f"  curl https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<NGROK_URL>/webhook")
-    app.run(host="0.0.0.0", port=8787, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True)

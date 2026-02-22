@@ -9,11 +9,11 @@ from js import Response, Object, Headers, URL, fetch
 from pyodide.ffi import to_js, create_proxy
 
 try:
-    from src.bot import handle_message
-    from src.telegram import parse_incoming_message
+    from src.bot import handle_message, get_logs, log_error
+    from src.telegram import parse_incoming_message, send_message
 except ModuleNotFoundError:
-    from bot import handle_message
-    from telegram import parse_incoming_message
+    from bot import handle_message, get_logs, log_error
+    from telegram import parse_incoming_message, send_message
 
 
 class WorkersEnv:
@@ -73,6 +73,19 @@ async def on_fetch(request, cf_env, ctx):
     if "/webhook" not in url_str:
         return Response.new("Not Found", status=404)
 
+    # --- GET /webhook?logs or /webhook?usage: view logs ---
+    if method == "GET":
+        parsed_url = URL.new(url_str)
+        resp_headers = Headers.new(to_js({"Content-Type": "application/json"}, dict_converter=Object.fromEntries))
+        if str(parsed_url.searchParams.get("logs")) != "None":
+            logs = await get_logs(env)
+            return Response.new(json.dumps(logs, indent=2), status=200, headers=resp_headers)
+        if str(parsed_url.searchParams.get("usage")) != "None":
+            raw = await env.kv_get("usage_log")
+            usage_logs = json.loads(raw) if raw else []
+            return Response.new(json.dumps(usage_logs, indent=2), status=200, headers=resp_headers)
+        return Response.new("OK", status=200)
+
     # --- POST: incoming Telegram update ---
     if method == "POST":
         body_text = await request.text()
@@ -81,12 +94,11 @@ async def on_fetch(request, cf_env, ctx):
         chat_id, text = parse_incoming_message(body)
 
         if chat_id and text:
-            # Process in background so we return 200 quickly.
-            # waitUntil() expects a JS Promise — wrap the Python coroutine.
-            promise = to_js(_process_message(env, chat_id, text), dict_converter=Object.fromEntries)
-            ctx.waitUntil(promise)
+            # Process synchronously — the main handler has no duration limit,
+            # unlike waitUntil() which is killed after 30s.
+            await _process_message(env, chat_id, text)
 
-        # Always return 200 to acknowledge the webhook
+        # Return 200 to acknowledge the webhook
         return Response.new("OK", status=200)
 
     return Response.new("Method Not Allowed", status=405)
@@ -97,5 +109,15 @@ async def _process_message(env, chat_id, text):
     try:
         await handle_message(env, chat_id, text)
     except Exception as e:
-        # Log the error (visible in Cloudflare Workers logs)
         print(f"Error processing message from {chat_id}: {e}")
+        try:
+            await log_error(env, chat_id, "unhandled_exception", str(e))
+        except Exception:
+            pass
+        try:
+            await send_message(
+                env, chat_id,
+                "Sorry, something went wrong while processing your message. Please try again."
+            )
+        except Exception:
+            print(f"Failed to send error message to {chat_id}")

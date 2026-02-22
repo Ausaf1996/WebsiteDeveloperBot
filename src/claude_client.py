@@ -23,7 +23,7 @@ You can handle requests like:
 - Updating contact information
 - Changing section headings or descriptions
 
-Respond ONLY with valid JSON in one of these formats:
+CRITICAL: You MUST respond with ONLY valid JSON and nothing else. No plain text, no markdown, no explanation outside JSON. Every response must be exactly one JSON object in one of these formats:
 
 When you can make the update:
 {"action": "update", "summary": "Brief simple description of the changes", "updated_html": "The COMPLETE updated HTML file"}
@@ -36,6 +36,8 @@ When the request is out of scope:
 
 When the request is off-topic (not about the website):
 {"action": "off_topic", "message": "Friendly reminder that you only help with website updates"}
+
+Remember: Your output must start with { and end with }. No other text allowed.
 """
 
 
@@ -76,7 +78,7 @@ def _build_messages(current_html, user_message, history=None):
     return messages
 
 
-async def process_request(env, current_html, user_message, history=None):
+async def process_request(env, current_html, user_message, history=None, chat_id=None):
     """Send the user request and current HTML to Claude API.
 
     Returns a dict with action, summary/message, and optionally updated_html.
@@ -99,6 +101,14 @@ async def process_request(env, current_html, user_message, history=None):
     )
 
     if response["status"] != 200:
+        error_detail = f"status={response['status']} body={response['text'][:500]}"
+        print(f"Claude API error: {error_detail}")
+        if chat_id:
+            try:
+                from bot import log_error
+            except ImportError:
+                from src.bot import log_error
+            await log_error(env, chat_id, "claude_api_error", error_detail)
         return {
             "action": "error",
             "message": "Sorry, I'm having trouble processing your request right now. Please try again later.",
@@ -112,6 +122,14 @@ async def process_request(env, current_html, user_message, history=None):
     try:
         parsed = json.loads(content_text)
     except json.JSONDecodeError:
+        error_detail = f"stop_reason={result.get('stop_reason')} content_text={content_text[:500]}"
+        print(f"Claude response not valid JSON. {error_detail}")
+        if chat_id:
+            try:
+                from bot import log_error
+            except ImportError:
+                from src.bot import log_error
+            await log_error(env, chat_id, "claude_bad_json", error_detail)
         # Try to extract JSON from the response if Claude wrapped it in text
         json_match = re.search(r"\{.*\}", content_text, re.DOTALL)
         if json_match:
@@ -123,9 +141,10 @@ async def process_request(env, current_html, user_message, history=None):
             parsed = None
 
     if parsed is None:
+        # Claude returned plain text instead of JSON — treat it as a clarify response
         parsed = {
-            "action": "error",
-            "message": "Sorry, I couldn't process that. Please try rephrasing your request.",
+            "action": "clarify",
+            "message": content_text.strip(),
         }
 
     parsed["_usage"] = usage

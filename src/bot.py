@@ -9,6 +9,40 @@ except ModuleNotFoundError:
 
 MAX_HISTORY_MESSAGES = 20
 HISTORY_TTL = 86400  # 24 hours
+LOG_TTL = 86400  # 24 hours
+MAX_LOG_ENTRIES = 50
+
+
+async def log_error(env, chat_id, error_type, detail):
+    """Append an error entry to the KV-based error log (24h TTL)."""
+    try:
+        raw = await env.kv_get("error_log")
+        logs = json.loads(raw) if raw else []
+    except Exception:
+        logs = []
+
+    # Use a simple incrementing approach for timestamp
+    import time
+    logs.append({
+        "ts": int(time.time()),
+        "chat_id": str(chat_id),
+        "type": error_type,
+        "detail": str(detail)[:500],
+    })
+
+    # Keep only the most recent entries
+    if len(logs) > MAX_LOG_ENTRIES:
+        logs = logs[-MAX_LOG_ENTRIES:]
+
+    await env.kv_put("error_log", json.dumps(logs), ttl=LOG_TTL)
+
+
+async def get_logs(env):
+    """Retrieve all error log entries from KV."""
+    raw = await env.kv_get("error_log")
+    if raw:
+        return json.loads(raw)
+    return []
 
 # Chat IDs allowed to use the bot. Add more IDs to this list.
 ALLOWED_CHAT_IDS = [
@@ -176,17 +210,42 @@ async def _handle_confirmation(env, chat_id, message_text, pending_json):
         )
 
 
-def _log_usage(usage):
-    """Log Claude API token usage."""
-    if usage:
-        input_tokens = usage.get("input_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0)
-        print(f"  Tokens: {input_tokens} in / {output_tokens} out / {input_tokens + output_tokens} total")
+async def _log_usage(env, chat_id, usage, user_message):
+    """Log Claude API token usage to KV and console."""
+    if not usage:
+        return
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    print(f"  Tokens: {input_tokens} in / {output_tokens} out / {input_tokens + output_tokens} total")
+
+    import time
+    try:
+        raw = await env.kv_get("usage_log")
+        logs = json.loads(raw) if raw else []
+    except Exception:
+        logs = []
+
+    logs.append({
+        "ts": int(time.time()),
+        "chat_id": str(chat_id),
+        "message": user_message[:100],
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+    })
+
+    if len(logs) > MAX_LOG_ENTRIES:
+        logs = logs[-MAX_LOG_ENTRIES:]
+
+    await env.kv_put("usage_log", json.dumps(logs), ttl=LOG_TTL)
 
 
 async def _handle_new_request(env, chat_id, message_text):
     """Process a brand-new update request from the user."""
     print(f"[USER {chat_id}] {message_text}")
+
+    # Acknowledge immediately so the user knows the bot is working
+    await telegram.send_message(env, chat_id, "working on it...")
 
     # Record user message in conversation history
     await _append_history(env, chat_id, "user", message_text)
@@ -195,6 +254,7 @@ async def _handle_new_request(env, chat_id, message_text):
     current_html, _ = await github_client.get_current_html(env)
 
     if current_html is None:
+        await log_error(env, chat_id, "github_fetch_failed", "Could not fetch current HTML from GitHub")
         await telegram.send_message(
             env,
             chat_id,
@@ -207,7 +267,7 @@ async def _handle_new_request(env, chat_id, message_text):
 
     # Ask Claude to process the request
     result = await claude_client.process_request(
-        env, current_html, message_text, history
+        env, current_html, message_text, history, chat_id=chat_id
     )
 
     usage = result.pop("_usage", None)
@@ -234,20 +294,20 @@ async def _handle_new_request(env, chat_id, message_text):
         )
         await telegram.send_message(env, chat_id, reply)
         print(f"[BOT  {chat_id}] {result['summary']}")
-        _log_usage(usage)
+        await _log_usage(env, chat_id, usage, message_text)
 
     elif action in ("clarify", "out_of_scope", "off_topic"):
         await _append_history(env, chat_id, "bot", result["message"])
         await telegram.send_message(env, chat_id, result["message"])
         print(f"[BOT  {chat_id}] {result['message']}")
-        _log_usage(usage)
+        await _log_usage(env, chat_id, usage, message_text)
 
     else:
         msg = result.get("message", "Sorry, something went wrong. Please try again.")
         await _append_history(env, chat_id, "bot", msg)
         await telegram.send_message(env, chat_id, msg)
         print(f"[BOT  {chat_id}] {msg}")
-        _log_usage(usage)
+        await _log_usage(env, chat_id, usage, message_text)
 
 
 # ── Conversation history helpers ──────────────────────────────────────
