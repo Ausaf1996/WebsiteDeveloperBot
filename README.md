@@ -232,7 +232,7 @@ WebsiteDeveloperBot/
 |---|---|
 | `local_server.py` | Flask app serving as the main entry point. Handles POST `/webhook` for Telegram updates, GET `/webhook?logs` for error logs, GET `/webhook?usage` for token usage logs. Includes per-chat concurrency lock to prevent race conditions. Runs with gunicorn on Cloud Run, or standalone locally. |
 | `src/bot.py` | Orchestrates the full flow: authorization check, rollback commands, pending confirmations, new requests, conversation history. Manages three KV keys per chat: `pending:`, `rollback:`, `history:`. |
-| `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-opus-4-6). Builds multi-turn messages so Claude understands follow-ups. |
+| `src/claude_client.py` | Sends current HTML + conversation history + user message to Claude (claude-sonnet-5). Builds multi-turn messages so Claude understands follow-ups. |
 | `src/telegram.py` | Parses incoming Telegram update payloads and sends text replies via the Bot API. |
 | `src/github_client.py` | Reads and writes `index.html` in the website GitHub repo using the Contents API. |
 | `src/html_validator.py` | Validates every generated HTML before deployment -- checks for DOCTYPE, all 9 page sections, sidebar, and footer. |
