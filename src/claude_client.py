@@ -116,7 +116,22 @@ async def process_request(env, current_html, user_message, history=None, chat_id
         }
 
     result = json.loads(response["text"])
-    content_text = result["content"][0]["text"]
+    text_block = next((b for b in result["content"] if b.get("type") == "text"), None)
+    if text_block is None:
+        error_detail = f"stop_reason={result.get('stop_reason')} content_types={[b.get('type') for b in result['content']]}"
+        print(f"Claude response had no text block. {error_detail}")
+        if chat_id:
+            try:
+                from bot import log_error
+            except ImportError:
+                from src.bot import log_error
+            await log_error(env, chat_id, "claude_no_text_block", error_detail)
+        return {
+            "action": "error",
+            "message": "Sorry, I'm having trouble processing your request right now. Please try again later.",
+            "_usage": result.get("usage"),
+        }
+    content_text = text_block["text"]
     usage = result.get("usage")
 
     try:
