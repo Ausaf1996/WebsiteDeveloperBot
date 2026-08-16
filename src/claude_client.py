@@ -91,7 +91,7 @@ async def process_request(env, current_html, user_message, history=None, chat_id
 
     body = {
         "model": "claude-sonnet-5",
-        "max_tokens": 16000,
+        "max_tokens": 64000,
         "system": SYSTEM_PROMPT,
         "messages": _build_messages(current_html, user_message, history),
     }
